@@ -1,0 +1,111 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions for authorization
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // ============================================================================
+    // 1. Users Collection
+    // ============================================================================
+    match /users/{userId} {
+      // Any authenticated student can browse classmate profiles
+      allow read: if isAuthenticated();
+      
+      // Only the user themselves can create or update their own profile document
+      allow create, update: if isOwner(userId);
+      
+      // Profiles cannot be deleted directly from client
+      allow delete: if false;
+    }
+
+    // ============================================================================
+    // 2. Posts Collection & Comments Subcollection
+    // ============================================================================
+    match /posts/{postId} {
+      // Any authenticated student can read the social feed
+      allow read: if isAuthenticated();
+
+      // Only authenticated users can create posts with their own authorId
+      allow create: if isAuthenticated() && request.resource.data.authorId == request.auth.uid;
+
+      // Updating a post:
+      // - The author can edit content
+      // - Classmates can toggle likes (updating likesCount and likedBy) or commentsCount
+      allow update: if isAuthenticated();
+
+      // Only the original author can delete their post
+      allow delete: if isAuthenticated() && resource.data.authorId == request.auth.uid;
+
+      // Comments Subcollection: posts/{postId}/comments/{commentId}
+      match /comments/{commentId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && request.resource.data.authorId == request.auth.uid;
+        allow delete: if isAuthenticated() && resource.data.authorId == request.auth.uid;
+      }
+    }
+
+    // ============================================================================
+    // 3. Peer Requests Collection
+    // ============================================================================
+    match /peer_requests/{requestId} {
+      // Only the sender or receiver can inspect connection requests
+      allow read: if isAuthenticated() && (
+        resource.data.senderId == request.auth.uid ||
+        resource.data.receiverId == request.auth.uid
+      );
+
+      // Authenticated users can send requests as long as they are the sender
+      allow create: if isAuthenticated() && request.resource.data.senderId == request.auth.uid;
+
+      // Only the receiver can update the request status (e.g. accept)
+      allow update: if isAuthenticated() && resource.data.receiverId == request.auth.uid;
+
+      // Either party can delete (cancel outgoing or decline incoming / unfriend)
+      allow delete: if isAuthenticated() && (
+        resource.data.senderId == request.auth.uid ||
+        resource.data.receiverId == request.auth.uid
+      );
+    }
+
+    // ============================================================================
+    // 4. Conversations & Direct Messages
+    // ============================================================================
+    match /conversations/{conversationId} {
+      // Allow single-doc read (get) if authenticated and either document is not yet created
+      // or the user is one of the conversation participants
+      allow get: if isAuthenticated() && (
+        resource == null || request.auth.uid in resource.data.participants
+      );
+
+      // Only participants in the conversation can list or query conversations
+      allow list: if isAuthenticated() && request.auth.uid in resource.data.participants;
+
+      // Creating a conversation: creator must be one of the participants
+      allow create: if isAuthenticated() && request.auth.uid in request.resource.data.participants;
+
+      // Participants can update metadata (e.g. lastMessage preview)
+      allow update: if isAuthenticated() && request.auth.uid in resource.data.participants;
+
+      // Messages Subcollection: conversations/{conversationId}/messages/{messageId}
+      match /messages/{messageId} {
+        // Only conversation participants can read messages
+        allow read: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+
+        // Only conversation participants can post messages, and senderId must match auth UID
+        allow create: if isAuthenticated() && 
+          request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants &&
+          request.resource.data.senderId == request.auth.uid;
+
+        // Messages are immutable once sent
+        allow update, delete: if false;
+      }
+    }
+  }
+}

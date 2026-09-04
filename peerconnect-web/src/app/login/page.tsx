@@ -2,22 +2,23 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { signInWithEmailAndPassword, sendEmailVerification, signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 
 /**
  * ==============================================================================
- * User Login Page (`/login`)
+ * User Login Page (`/login`) with Email Verification Gate
  * ==============================================================================
  * 
  * LIFECYCLE FLOW:
  * 1. User inputs Email and Password.
  * 2. On submit: We call `signInWithEmailAndPassword(auth, email, password)`.
- * 3. Firebase Auth verifies the credentials against its secure identity server.
- * 4. On success: Firebase stores the auth token (JWT) in the browser,
- *    and we redirect to `/dashboard`.
- * 5. On failure: We map the Firebase error code to a readable error message.
+ * 3. We check `user.emailVerified`:
+ *    - If FALSE: We block login, immediately `signOut(auth)`, and show an alert
+ *      asking them to check their email, plus a "Resend Verification Link" button.
+ *    - If TRUE: Access granted! We redirect to `/dashboard`.
  */
 export default function LoginPage() {
   const router = useRouter();
@@ -25,15 +26,34 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Tracks if the last attempt failed because the account is unverified
+  const [isUnverified, setIsUnverified] = useState(false);
+  const [isResending, setIsResending] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSuccessMsg(null);
+    setIsUnverified(false);
     setIsLoading(true);
 
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+
+      // Check if the user's email has been verified
+      if (!user.emailVerified) {
+        // Sign out immediately so unverified token is not kept
+        await signOut(auth);
+        setIsUnverified(true);
+        setError("Your email is not verified yet. Please check your inbox to activate your account.");
+        return;
+      }
+
+      // Email is verified — proceed to dashboard
       router.push("/dashboard");
     } catch (err: unknown) {
       console.error("Login error:", err);
@@ -54,23 +74,74 @@ export default function LoginPage() {
     }
   };
 
+  // Resend the verification link
+  const handleResendEmail = async () => {
+    if (!email || !password) {
+      setError("Please re-enter your email and password to resend the verification link.");
+      return;
+    }
+
+    setIsResending(true);
+    setError(null);
+    setSuccessMsg(null);
+
+    try {
+      // Temporarily authenticate to get user object
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      await sendEmailVerification(cred.user);
+      await signOut(auth);
+      setSuccessMsg(`Verification email has been resent to ${email}. Please check your inbox (and spam folder)!`);
+    } catch (err) {
+      console.error("Resend error:", err);
+      setError("Failed to resend verification email. Please try again in a moment.");
+    } finally {
+      setIsResending(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-slate-100">
       <div className="w-full max-w-md p-8 rounded-2xl bg-white/10 backdrop-blur-xl border border-white/20 shadow-2xl">
-        {/* Header */}
+        {/* Header with Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-indigo-500 to-violet-500 text-white font-bold text-2xl shadow-lg mb-3">
-            P
+          <div className="relative w-16 h-16 mx-auto mb-3 rounded-2xl overflow-hidden shadow-lg border border-indigo-500/30">
+            <Image
+              src="/logo.png"
+              alt="PeerConnect Logo"
+              fill
+              className="object-cover"
+              priority
+            />
           </div>
           <h1 className="text-3xl font-extrabold tracking-tight text-white">Welcome Back</h1>
           <p className="text-slate-300 text-sm mt-1">Sign in to your PeerConnect account</p>
         </div>
 
+        {/* Success Alert */}
+        {successMsg && (
+          <div className="mb-6 p-3 rounded-lg bg-emerald-500/20 border border-emerald-500/50 text-emerald-200 text-sm flex items-start space-x-2">
+            <span className="font-bold">✓</span>
+            <span>{successMsg}</span>
+          </div>
+        )}
+
         {/* Error Alert */}
         {error && (
-          <div className="mb-6 p-3 rounded-lg bg-red-500/20 border border-red-500/50 text-red-200 text-sm flex items-start space-x-2">
-            <span className="font-bold">⚠️</span>
-            <span>{error}</span>
+          <div className="mb-6 p-3 rounded-lg bg-red-500/20 border border-red-500/50 text-red-200 text-sm flex flex-col space-y-2">
+            <div className="flex items-start space-x-2">
+              <span className="font-bold">⚠️</span>
+              <span>{error}</span>
+            </div>
+            {isUnverified && (
+              <button
+                type="button"
+                onClick={handleResendEmail}
+                disabled={isResending}
+                className="mt-2 text-xs font-semibold text-indigo-300 hover:text-indigo-200 underline text-left cursor-pointer"
+              >
+                {isResending ? "Resending email..." : "Didn't get the email? Click here to resend"}
+              </button>
+            )}
           </div>
         )}
 
@@ -124,3 +195,4 @@ export default function LoginPage() {
     </div>
   );
 }
+

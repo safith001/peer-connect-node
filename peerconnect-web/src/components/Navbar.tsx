@@ -58,8 +58,13 @@ export default function Navbar() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
         {/* Brand Logo */}
         <Link href="/dashboard" className="flex items-center space-x-2.5 group">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center text-white font-black text-lg shadow-lg shadow-indigo-500/20 group-hover:scale-105 transition">
-            P
+          <div className="relative w-9 h-9 rounded-xl overflow-hidden shadow-lg border border-indigo-500/30 group-hover:scale-105 transition">
+            <Image
+              src="/logo.png"
+              alt="PeerConnect Logo"
+              fill
+              className="object-cover"
+            />
           </div>
           <span className="font-extrabold text-lg tracking-tight text-white group-hover:text-indigo-300 transition">
             PeerConnect

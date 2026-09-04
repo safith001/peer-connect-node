@@ -18,14 +18,21 @@ import { useAuth } from "@/context/AuthContext";
  * 3. If authenticated: Renders the protected page contents.
  */
 export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, logout } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && !user) {
-      router.push("/login");
+    if (!loading) {
+      if (!user) {
+        router.push("/login");
+      } else if (!user.emailVerified) {
+        // Unverified session attempting to access protected area
+        logout().then(() => {
+          router.push("/login");
+        });
+      }
     }
-  }, [user, loading, router]);
+  }, [user, loading, router, logout]);
 
   if (loading) {
     return (
@@ -36,9 +43,10 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
     );
   }
 
-  if (!user) {
+  if (!user || !user.emailVerified) {
     return null; // Will redirect via the useEffect
   }
 
   return <>{children}</>;
 }
+

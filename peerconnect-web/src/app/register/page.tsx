@@ -2,32 +2,27 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import Image from "next/image";
+import { createUserWithEmailAndPassword, updateProfile, sendEmailVerification, signOut } from "firebase/auth";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 
 /**
  * ==============================================================================
- * User Registration Page (`/register`)
+ * User Registration Page (`/register`) with Email Verification
  * ==============================================================================
  * 
- * In Next.js App Router, components with user interactions (state, events,
- * form submissions) must declare `"use client"` at the very top.
- * 
  * LIFECYCLE FLOW:
- * 1. User fills out Name, Email, Password, and Confirm Password.
- * 2. On submit: we validate input (e.g., passwords match, length >= 6).
+ * 1. User fills out academic profile and credentials.
+ * 2. On submit: we validate input (passwords match, length >= 6).
  * 3. We call `createUserWithEmailAndPassword()` to create the Firebase Auth account.
- * 4. We update the user's `displayName` using `updateProfile()`.
- * 5. We create an initial User document in Cloud Firestore (`users` collection)
- *    so their profile record is ready for social networking.
- * 6. We redirect the user to `/dashboard`.
+ * 4. We update `displayName` and create the Firestore profile record.
+ * 5. We call `sendEmailVerification(user)` so Firebase dispatches an activation link.
+ * 6. We call `signOut(auth)` to keep the session unauthenticated until verified.
+ * 7. We flip `isRegistered` state to TRUE, rendering the "Check your email" alert card.
  */
 export default function RegisterPage() {
-  const router = useRouter();
-
-  // Form states (analogue to Python/Java local variables)
+  // Form states
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -38,6 +33,8 @@ export default function RegisterPage() {
 
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  // Controls display of the post-registration verification alert
+  const [isRegistered, setIsRegistered] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,8 +77,14 @@ export default function RegisterPage() {
         createdAt: serverTimestamp(),
       });
 
-      // 4. Redirect user to the dashboard
-      router.push("/dashboard");
+      // 4. Send the verification email to the student's inbox
+      await sendEmailVerification(user);
+
+      // 5. Sign out so an unverified session is not left active in local storage
+      await signOut(auth);
+
+      // 6. Flip UI to the verification notice
+      setIsRegistered(true);
     } catch (err: unknown) {
       console.error("Registration error:", err);
       // Translate Firebase error codes into friendly user messages
@@ -100,13 +103,69 @@ export default function RegisterPage() {
     }
   };
 
+  // Render Verification Alert Card once registration succeeds
+  if (isRegistered) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-slate-100">
+        <div className="w-full max-w-md p-8 rounded-2xl bg-white/10 backdrop-blur-xl border border-white/20 shadow-2xl text-center">
+          {/* Logo */}
+          <div className="relative w-20 h-20 mx-auto mb-4 rounded-2xl overflow-hidden shadow-lg border border-indigo-500/30">
+            <Image
+              src="/logo.png"
+              alt="PeerConnect Logo"
+              fill
+              className="object-cover"
+            />
+          </div>
+
+          {/* Mail Icon Badge */}
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-2xl mb-4">
+            ✉️
+          </div>
+
+          <h2 className="text-2xl font-bold text-white mb-2">Check Your Email</h2>
+          <p className="text-sm text-slate-300 mb-4">
+            We have sent a verification link to:
+          </p>
+          <div className="p-3 rounded-lg bg-indigo-500/20 border border-indigo-500/40 text-indigo-200 font-mono text-sm font-semibold mb-6 break-all">
+            {email}
+          </div>
+
+          <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-700 text-left text-xs text-slate-300 space-y-2 mb-6">
+            <p className="flex items-start space-x-2">
+              <span className="text-emerald-400 font-bold">✓</span>
+              <span>Open the email and click the confirmation link.</span>
+            </p>
+            <p className="flex items-start space-x-2">
+              <span className="text-amber-400 font-bold">!</span>
+              <span>If you don&apos;t see it within 2 minutes, check your <strong>Spam / Junk</strong> folder.</span>
+            </p>
+          </div>
+
+          <Link
+            href="/login"
+            className="block w-full py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white font-medium shadow-lg hover:shadow-indigo-500/25 transition text-center"
+          >
+            Go to Sign In
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-slate-100">
       <div className="w-full max-w-md p-8 rounded-2xl bg-white/10 backdrop-blur-xl border border-white/20 shadow-2xl">
-        {/* Header */}
+        {/* Header with Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-indigo-500 to-violet-500 text-white font-bold text-2xl shadow-lg mb-3">
-            P
+          <div className="relative w-16 h-16 mx-auto mb-3 rounded-2xl overflow-hidden shadow-lg border border-indigo-500/30">
+            <Image
+              src="/logo.png"
+              alt="PeerConnect Logo"
+              fill
+              className="object-cover"
+              priority
+            />
           </div>
           <h1 className="text-3xl font-extrabold tracking-tight text-white">Join PeerConnect</h1>
           <p className="text-slate-300 text-sm mt-1">Connect, share, and collaborate with your peers</p>
@@ -242,3 +301,4 @@ export default function RegisterPage() {
     </div>
   );
 }
+

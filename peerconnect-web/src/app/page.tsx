@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 
 export default function HomePage() {
   return (
@@ -6,8 +7,14 @@ export default function HomePage() {
       {/* Navigation Header */}
       <header className="w-full max-w-6xl mx-auto px-6 py-6 flex items-center justify-between">
         <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-indigo-500/20">
-            P
+          <div className="relative w-10 h-10 rounded-xl overflow-hidden shadow-lg border border-indigo-500/30">
+            <Image
+              src="/logo.png"
+              alt="PeerConnect Logo"
+              fill
+              className="object-cover"
+              priority
+            />
           </div>
           <span className="text-xl font-bold tracking-tight text-white">PeerConnect</span>
         </div>

@@ -21,6 +21,7 @@ import { AuthProvider } from "@/context/AuthContext";
 import { NotificationProvider } from "@/context/NotificationContext";
 import NotificationToasts from "@/components/NotificationToasts";
 import Script from "next/script";
+import { Analytics } from "@vercel/analytics/next";
 
 const GA_MEASUREMENT_ID = process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID;
 
@@ -59,6 +60,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <NotificationProvider>
             <NotificationToasts />
             {children}
+            {/* Vercel Web Analytics Component */}
+            <Analytics />
           </NotificationProvider>
         </AuthProvider>
       </body>

@@ -24,7 +24,7 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
   useEffect(() => {
     if (!loading) {
       if (!user) {
-        router.push("/login");
+        router.push("/");
       } else if (!user.emailVerified) {
         // Unverified session attempting to access protected area
         logout().then(() => {

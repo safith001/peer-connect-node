@@ -32,7 +32,7 @@ export default function Navbar() {
 
   const handleLogout = async () => {
     await logout();
-    router.push("/login");
+    router.push("/");
   };
 
   const navLinks = [

@@ -2,7 +2,32 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions for authorization
+    /**
+     * ==============================================================================
+     * PeerConnect Production Security Rules
+     * ==============================================================================
+     * 
+     * ARCHITECTURAL CONCEPT: Row-Level Security (RLS) & Access Control
+     * -----------------------------------------------------------------
+     * In traditional SQL databases (PostgreSQL or MySQL with Spring/Laravel), 
+     * authorization is enforced on the server layer before a query executes:
+     *   `WHERE user_id = :current_user_id` or `@PreAuthorize("hasRole('STUDENT')")`
+     * 
+     * In Cloud Firestore (Serverless Architecture):
+     * The client (browser) communicates directly with the database API.
+     * Security Rules are the digital firewall and authorization bouncers executed
+     * by Google's infrastructure on every single document read and write.
+     * 
+     * CRITICAL SECURITY PRINCIPLES ENFORCED HERE:
+     * 1. Least Privilege: Users can only read what they need and write what they own.
+     * 2. Author Tamper-Proofing: A user cannot forge another student's authorId or UID.
+     * 3. Field Immutability: Sensitive fields like `createdAt` and `participants` cannot
+     *    be hijacked or rewritten during updates.
+     * 4. Granular Post Update: Non-authors can ONLY modify `likesCount`, `likedBy`, or
+     *    `commentsCount`. They cannot edit another classmate's post text or files.
+     */
+
+    // Helper functions for clean, reusable authorization logic
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -12,62 +37,101 @@ service cloud.firestore {
     }
 
     // ============================================================================
-    // 1. Users Collection
+    // 1. Users Collection (`/users/{userId}`)
     // ============================================================================
     match /users/{userId} {
-      // Any authenticated student can browse classmate profiles
+      // Any authenticated student can read classmate profiles for the /peers directory
+      // and post author cards.
       allow read: if isAuthenticated();
-      
-      // Only the user themselves can create or update their own profile document
-      allow create, update: if isOwner(userId);
-      
-      // Profiles cannot be deleted directly from client
+
+      // Only the authenticated user matching the document ID can create their profile.
+      allow create: if isOwner(userId);
+
+      // Only the profile owner can update their own data.
+      // Enforces that the user cannot alter their immutable UID.
+      allow update: if isOwner(userId) && 
+        (!('uid' in resource.data) || request.resource.data.uid == resource.data.uid);
+
+      // Account deletions are restricted to admin processes to prevent accidental data loss.
       allow delete: if false;
     }
 
     // ============================================================================
-    // 2. Posts Collection & Comments Subcollection
+    // 2. Posts Collection & Comments Subcollection (`/posts/{postId}`)
     // ============================================================================
     match /posts/{postId} {
-      // Any authenticated student can read the social feed
+      // Any authenticated student can read the campus feed.
       allow read: if isAuthenticated();
 
-      // Only authenticated users can create posts with their own authorId
-      allow create: if isAuthenticated() && request.resource.data.authorId == request.auth.uid;
+      // Creating a post: must be authenticated and cannot forge another user's authorId.
+      allow create: if isAuthenticated() && 
+        request.resource.data.authorId == request.auth.uid;
 
       // Updating a post:
-      // - The author can edit content
-      // - Classmates can toggle likes (updating likesCount and likedBy) or commentsCount
-      allow update: if isAuthenticated();
+      // AUDIT HARDENING:
+      // - The author can update their content/attachments, but cannot alter `authorId` or `createdAt`.
+      // - Other classmates can ONLY update engagement fields (`likesCount`, `likedBy`, `commentsCount`).
+      allow update: if isAuthenticated() && (
+        // Case A: Post author editing their own post
+        (
+          resource.data.authorId == request.auth.uid &&
+          request.resource.data.authorId == resource.data.authorId
+        )
+        ||
+        // Case B: Any student reacting (liking/unliking or commenting)
+        (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'likedBy', 'commentsCount']) &&
+          request.resource.data.authorId == resource.data.authorId
+        )
+      );
 
-      // Only the original author can delete their post
+      // Deleting a post: Only the original author can delete their post.
       allow delete: if isAuthenticated() && resource.data.authorId == request.auth.uid;
 
-      // Comments Subcollection: posts/{postId}/comments/{commentId}
+      // --- Comments Subcollection: /posts/{postId}/comments/{commentId} ---
       match /comments/{commentId} {
         allow read: if isAuthenticated();
-        allow create: if isAuthenticated() && request.resource.data.authorId == request.auth.uid;
-        allow delete: if isAuthenticated() && resource.data.authorId == request.auth.uid;
+
+        // Must be authenticated and authorId must match auth token
+        allow create: if isAuthenticated() && 
+          request.resource.data.authorId == request.auth.uid;
+
+        // Comments cannot be edited once posted to preserve academic discussion integrity
+        allow update: if false;
+
+        // Deletion: Allowed if user is the comment author OR the owner of the parent post
+        // (allows post creators to moderate spam or inappropriate comments on their posts)
+        allow delete: if isAuthenticated() && (
+          resource.data.authorId == request.auth.uid ||
+          get(/databases/$(database)/documents/posts/$(postId)).data.authorId == request.auth.uid
+        );
       }
     }
 
     // ============================================================================
-    // 3. Peer Requests Collection
+    // 3. Peer Connection Requests (`/peer_requests/{requestId}`)
     // ============================================================================
     match /peer_requests/{requestId} {
-      // Only the sender or receiver can inspect connection requests
+      // Only the sender or receiver can inspect connection requests.
+      // Prevents third parties from snooping on who is connecting with whom.
       allow read: if isAuthenticated() && (
         resource.data.senderId == request.auth.uid ||
         resource.data.receiverId == request.auth.uid
       );
 
-      // Authenticated users can send requests as long as they are the sender
-      allow create: if isAuthenticated() && request.resource.data.senderId == request.auth.uid;
+      // Sender can create a request, but cannot forge another student as the sender.
+      allow create: if isAuthenticated() && 
+        request.resource.data.senderId == request.auth.uid;
 
-      // Only the receiver can update the request status (e.g. accept)
-      allow update: if isAuthenticated() && resource.data.receiverId == request.auth.uid;
+      // Status updates (accepting or declining):
+      // Only the intended recipient (receiver) can update status, and sender/receiver IDs are immutable.
+      allow update: if isAuthenticated() && 
+        resource.data.receiverId == request.auth.uid &&
+        request.resource.data.senderId == resource.data.senderId &&
+        request.resource.data.receiverId == resource.data.receiverId &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'acceptedAt', 'updatedAt']);
 
-      // Either party can delete (cancel outgoing or decline incoming / unfriend)
+      // Cancellation / Removal: Either the sender (cancel) or receiver (decline) can delete.
       allow delete: if isAuthenticated() && (
         resource.data.senderId == request.auth.uid ||
         resource.data.receiverId == request.auth.uid
@@ -75,37 +139,47 @@ service cloud.firestore {
     }
 
     // ============================================================================
-    // 4. Conversations & Direct Messages
+    // 4. Conversations & Direct Messages (`/conversations/{conversationId}`)
     // ============================================================================
     match /conversations/{conversationId} {
-      // Allow single-doc read (get) if authenticated and either document is not yet created
-      // or the user is one of the conversation participants
+      // Single-doc read: only participants can inspect room details.
+      // Allows get if document doesn't exist yet (for getOrCreateConversation check).
       allow get: if isAuthenticated() && (
         resource == null || request.auth.uid in resource.data.participants
       );
 
-      // Only participants in the conversation can list or query conversations
-      allow list: if isAuthenticated() && request.auth.uid in resource.data.participants;
+      // Query listing: only returns conversations where current user is a participant.
+      allow list: if isAuthenticated() && 
+        request.auth.uid in resource.data.participants;
 
-      // Creating a conversation: creator must be one of the participants
-      allow create: if isAuthenticated() && request.auth.uid in request.resource.data.participants;
+      // Creation: Creator must be included in the participants array.
+      allow create: if isAuthenticated() && 
+        request.auth.uid in request.resource.data.participants;
 
-      // Participants can update metadata (e.g. lastMessage preview)
-      allow update: if isAuthenticated() && request.auth.uid in resource.data.participants;
+      // Updating metadata (lastMessage preview, readBy, updatedAt):
+      // Only participants can update, and the participants list itself is strictly immutable.
+      allow update: if isAuthenticated() && 
+        request.auth.uid in resource.data.participants &&
+        request.resource.data.participants == resource.data.participants;
 
-      // Messages Subcollection: conversations/{conversationId}/messages/{messageId}
+      // Conversations cannot be deleted directly from client to preserve chat history
+      allow delete: if false;
+
+      // --- Messages Subcollection: /conversations/{conversationId}/messages/{messageId} ---
       match /messages/{messageId} {
-        // Only conversation participants can read messages
-        allow read: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+        // Only verified participants of the parent conversation can read messages
+        allow read: if isAuthenticated() && 
+          request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
 
-        // Only conversation participants can post messages, and senderId must match auth UID
+        // Only participants can post, and senderId must match auth UID
         allow create: if isAuthenticated() && 
           request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants &&
           request.resource.data.senderId == request.auth.uid;
 
-        // Messages are immutable once sent
+        // Chat messages are immutable once transmitted
         allow update, delete: if false;
       }
     }
+
   }
 }

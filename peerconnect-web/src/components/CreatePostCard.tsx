@@ -11,6 +11,8 @@ import {
   formatFileSize,
   AttachmentCategory,
 } from "@/lib/cloudinary";
+import { validatePostContent } from "@/lib/validation";
+import { checkActionCooldown, recordActionExecution } from "@/lib/rateLimit";
 
 /**
  * ==============================================================================
@@ -91,7 +93,22 @@ export default function CreatePostCard({ onPostCreated }: CreatePostCardProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!content.trim() || !user) return;
+    if (!user) return;
+
+    // Validate and sanitize content before dispatching network calls
+    const validation = validatePostContent(content);
+    if (!validation.isValid) {
+      setError(validation.error || "Please enter valid post content.");
+      return;
+    }
+
+    // Rate Limiting: enforce a 10-second cooldown per student
+    const rateLimitKey = `create_post_${user.uid}`;
+    const cooldown = checkActionCooldown(rateLimitKey, 10);
+    if (!cooldown.allowed) {
+      setError(`Please wait ${cooldown.waitSeconds}s before publishing another post.`);
+      return;
+    }
 
     setIsSubmitting(true);
     setError(null);
@@ -130,7 +147,7 @@ export default function CreatePostCard({ onPostCreated }: CreatePostCardProps) {
           )}`,
         authorFaculty: profile?.faculty || "General",
         authorSemester: profile?.semester || 1,
-        content: content.trim(),
+        content: validation.sanitized,
         category: category,
         mediaUrl: finalAttachmentType === "image" ? finalAttachmentUrl : null,
         attachmentUrl: finalAttachmentUrl,
@@ -142,6 +159,9 @@ export default function CreatePostCard({ onPostCreated }: CreatePostCardProps) {
         commentsCount: 0,
         createdAt: serverTimestamp(),
       });
+
+      // Record successful post execution for rate limiting
+      recordActionExecution(rateLimitKey);
 
       // Clear form inputs
       setContent("");
@@ -197,14 +217,26 @@ export default function CreatePostCard({ onPostCreated }: CreatePostCardProps) {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-3">
-        <textarea
-          rows={3}
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          placeholder="Share an academic update, ask a question, or start a peer discussion..."
-          required
-          className="w-full px-4 py-3 rounded-2xl bg-slate-800/80 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition text-sm resize-none"
-        />
+        <div className="relative">
+          <textarea
+            rows={3}
+            value={content}
+            onChange={(e) => {
+              setContent(e.target.value);
+              if (error) setError(null);
+            }}
+            placeholder="Share an academic update, ask a question, or start a peer discussion..."
+            maxLength={2000}
+            required
+            className="w-full px-4 py-3 pb-7 rounded-2xl bg-slate-800/80 border border-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition text-sm resize-none"
+          />
+          <div className="absolute right-3.5 bottom-2 text-[10px] font-mono text-slate-400 select-none">
+            <span className={content.length > 1800 ? "text-amber-400 font-bold" : ""}>
+              {content.length}
+            </span>
+            /2000
+          </div>
+        </div>
 
         {/* Hidden File Input for Device Uploads (Images, PDFs, PPT/PPTX) */}
         <input

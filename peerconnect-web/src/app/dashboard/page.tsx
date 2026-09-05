@@ -332,18 +332,30 @@ export default function DashboardPage() {
                 </Link>
               </div>
 
+              {/* User Avatar & Identity Header */}
+              <div className="flex items-center space-x-3.5 mb-4 pb-4 border-b border-white/10">
+                <div className="relative w-12 h-12 rounded-xl overflow-hidden border border-indigo-400/40 bg-slate-800 shrink-0">
+                  <Image
+                    src={
+                      profile?.photoURL ||
+                      `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(
+                        profile?.name || "Peer"
+                      )}`
+                    }
+                    alt="Avatar"
+                    fill
+                    className="object-cover"
+                    unoptimized
+                  />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-white font-bold text-base truncate">{profile?.name || "Student"}</p>
+                  <p className="text-slate-400 font-mono text-xs truncate">{user?.email}</p>
+                </div>
+              </div>
+
               <div className="space-y-3 text-sm">
-                <div>
-                  <span className="text-xs uppercase text-slate-400 font-semibold block">Full Name</span>
-                  <p className="text-white font-medium">{profile?.name || "Not set"}</p>
-                </div>
-
-                <div>
-                  <span className="text-xs uppercase text-slate-400 font-semibold block">Email</span>
-                  <p className="text-slate-300 font-mono text-xs">{user?.email}</p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/5">
+                <div className="grid grid-cols-2 gap-2">
                   <div>
                     <span className="text-xs uppercase text-slate-400 font-semibold block">Faculty</span>
                     <p className="text-white font-medium">{profile?.faculty || "General"}</p>
@@ -365,6 +377,22 @@ export default function DashboardPage() {
                   <span className="text-xs uppercase text-slate-400 font-semibold block">Bio</span>
                   <p className="text-slate-300 text-xs italic mt-1">&ldquo;{profile?.bio || "No bio added yet."}&rdquo;</p>
                 </div>
+
+                {profile?.skills && profile.skills.length > 0 && (
+                  <div className="pt-2 border-t border-white/5">
+                    <span className="text-xs uppercase text-slate-400 font-semibold block mb-1.5">Academic Skills</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {profile.skills.map((skill: string) => (
+                        <span
+                          key={skill}
+                          className="px-2 py-0.5 rounded-md bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 text-[11px] font-medium"
+                        >
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

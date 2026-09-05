@@ -30,6 +30,7 @@ export interface UserProfile {
   semester?: number | null;
   bio?: string | null;
   photoURL?: string | null;
+  skills?: string[] | null;
 }
 
 interface AuthContextType {

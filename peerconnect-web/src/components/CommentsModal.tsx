@@ -16,6 +16,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
+import { validateCommentContent } from "@/lib/validation";
 
 /**
  * ==============================================================================
@@ -82,10 +83,17 @@ export default function CommentsModal({ postId, onClose }: CommentsModalProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newComment.trim() || !user || !postId) return;
+    if (!user || !postId) return;
+
+    // Validate and sanitize comment content
+    const validation = validateCommentContent(newComment);
+    if (!validation.isValid) {
+      alert(validation.error || "Please enter a valid comment.");
+      return;
+    }
 
     setIsSubmitting(true);
-    const commentText = newComment.trim();
+    const commentText = validation.sanitized;
     setNewComment("");
 
     try {
@@ -216,7 +224,8 @@ export default function CommentsModal({ postId, onClose }: CommentsModalProps) {
             type="text"
             value={newComment}
             onChange={(e) => setNewComment(e.target.value)}
-            placeholder="Write a comment..."
+            placeholder="Write a helpful comment (max 500 characters)..."
+            maxLength={500}
             className="flex-1 px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder-slate-400 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
           />
           <button

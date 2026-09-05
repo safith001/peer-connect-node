@@ -51,9 +51,21 @@ interface PostCardProps {
 export default function PostCard({ post, onLikeToggle, onOpenComments }: PostCardProps) {
   const { user } = useAuth();
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isLiking, setIsLiking] = useState(false);
 
   const isAuthor = user?.uid === post.authorId;
   const isLikedByMe = user ? post.likedBy?.includes(user.uid) : false;
+
+  // Debounced like click handler to prevent spamming and race conditions
+  const handleLikeClick = async () => {
+    if (!onLikeToggle || isLiking) return;
+    setIsLiking(true);
+    try {
+      await onLikeToggle(post.id);
+    } finally {
+      setTimeout(() => setIsLiking(false), 350);
+    }
+  };
 
   // Cross-origin safe file downloader using blob fetch
   const handleDownload = async (url: string, filename: string) => {
@@ -259,14 +271,17 @@ export default function PostCard({ post, onLikeToggle, onOpenComments }: PostCar
       <div className="flex items-center space-x-6 pt-3 border-t border-white/10 text-xs font-semibold text-slate-300">
         {/* Like Button */}
         <button
-          onClick={() => onLikeToggle && onLikeToggle(post.id)}
-          className={`flex items-center space-x-1.5 py-1 px-2.5 rounded-xl transition cursor-pointer ${
+          onClick={handleLikeClick}
+          disabled={isLiking}
+          className={`flex items-center space-x-1.5 py-1 px-2.5 rounded-xl transition cursor-pointer disabled:opacity-75 ${
             isLikedByMe
               ? "bg-pink-500/20 text-pink-400 border border-pink-500/30"
               : "hover:bg-white/10 text-slate-300"
           }`}
         >
-          <span>{isLikedByMe ? "❤️" : "🤍"}</span>
+          <span className={isLiking ? "scale-125 transition-transform" : ""}>
+            {isLikedByMe ? "❤️" : "🤍"}
+          </span>
           <span>{post.likesCount || 0} {post.likesCount === 1 ? "Like" : "Likes"}</span>
         </button>
 
